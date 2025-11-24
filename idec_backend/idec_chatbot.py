@@ -1,0 +1,762 @@
+from flask import Flask, request, jsonify, send_from_directory, session, send_file
+import os
+from anthropic import Anthropic
+from flask_cors import CORS
+from dotenv import load_dotenv
+import chromadb
+from sentence_transformers import SentenceTransformer
+import numpy as np
+from typing import List, Dict
+import uuid
+import re
+import time
+from threading import Lock
+
+# Load environment variables
+load_dotenv()
+anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+print(f"API Key loaded: {'Yes' if anthropic_api_key else 'No'}")
+client = Anthropic(api_key=anthropic_api_key)
+app = Flask(__name__)
+# Secret key for Flask sessions
+app.secret_key = os.environ.get(
+    "FLASK_SECRET_KEY",
+    "dev-secret"  # fallback for local dev
+)
+CORS(app)
+
+
+# In-memory conversation store
+conversations = {}
+conversations_lock = Lock()
+
+class ConversationManager:
+    """Manage conversation state including user names and message history"""
+    
+    def __init__(self):
+        self.conversations = {}
+        self.lock = Lock()
+        
+    def get_or_create_conversation(self, conversation_id: str) -> Dict:
+        """Get or create a conversation"""
+        with self.lock:
+            if conversation_id not in self.conversations:
+                self.conversations[conversation_id] = {
+                    'user_name': None,
+                    'created_at': time.time(),
+                    'last_activity': time.time(),
+                    'messages': []
+                }
+            else:
+                self.conversations[conversation_id]['last_activity'] = time.time()
+            return self.conversations[conversation_id]
+    
+    def set_user_name(self, conversation_id: str, name: str):
+        """Set user name for a conversation"""
+        with self.lock:
+            if conversation_id in self.conversations:
+                self.conversations[conversation_id]['user_name'] = name
+                self.conversations[conversation_id]['last_activity'] = time.time()
+    
+    def get_user_name(self, conversation_id: str) -> str:
+        """Get user name for a conversation"""
+        with self.lock:
+            conv = self.conversations.get(conversation_id)
+            return conv['user_name'] if conv else None
+    
+    def add_message(self, conversation_id: str, role: str, content: str):
+        """Add a message to conversation history"""
+        with self.lock:
+            if conversation_id in self.conversations:
+                self.conversations[conversation_id]['messages'].append({
+                    'role': role,
+                    'content': content,
+                    'timestamp': time.time()
+                })
+                # Keep only last 10 messages to avoid token limits
+                if len(self.conversations[conversation_id]['messages']) > 10:
+                    self.conversations[conversation_id]['messages'] = \
+                        self.conversations[conversation_id]['messages'][-10:]
+                self.conversations[conversation_id]['last_activity'] = time.time()
+    
+    def get_conversation_history(self, conversation_id: str, max_messages: int = 10) -> List[Dict]:
+        """Get conversation history"""
+        with self.lock:
+            conv = self.conversations.get(conversation_id)
+            if conv and 'messages' in conv:
+                return conv['messages'][-max_messages:]
+            return []
+    
+    def get_full_conversation(self, conversation_id: str) -> Dict:
+        """Get full conversation data including all messages"""
+        with self.lock:
+            conv = self.conversations.get(conversation_id)
+            if conv:
+                return {
+                    'user_name': conv.get('user_name'),
+                    'messages': conv.get('messages', []),
+                    'created_at': conv.get('created_at'),
+                    'last_activity': conv.get('last_activity')
+                }
+            return None
+    
+    def cleanup_old_conversations(self, max_age_hours: int = 24):
+        """Clean up conversations older than max_age_hours"""
+        with self.lock:
+            current_time = time.time()
+            to_remove = []
+            for conv_id, conv_data in self.conversations.items():
+                if current_time - conv_data['last_activity'] > max_age_hours * 3600:
+                    to_remove.append(conv_id)
+            
+            for conv_id in to_remove:
+                del self.conversations[conv_id]
+
+# Initialize the ConversationManager
+conversation_manager = ConversationManager()
+
+# Initialize SentenceTransformer
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# IDEC Knowledge Base - ACTUAL FAQs from Official Document
+idec_faqs = [
+    {
+        "question": 'How can I Open an IDEC Account?',
+        "answer": 'Open your web browser and go to idec.gov.ng. Click on "Get Started." Select your user type (Government, Corporate, NGO, or Individual). Enter your Tax Identification Number (TIN). Agree to the Terms and Privacy Policy. Click on "Create Account."',
+        "category": 'account'
+    },
+    {
+        "question": 'How Do I Apply for IDEC?',
+        "answer": 'Log in to the IDEC portal using your email and password. On the left-hand menu, click the "Apply" button and click "Add new project". Fill in the required project details: Project name, Brief, Location, Benefiting sector and sub sector related. You can either Add the list of products to the application directly or download the Excel template, fill it with your product information, then upload the completed sheet. Confirm the product list and the total number of products from the uploaded excel sheet, then click "Continue." Input the freight cost and the corresponding currency then click "Continue." Upload the following required documents: Application letter, Pro former invoice, Bill of lading, Tax clearance certificate, CAC document, Form M, Support letter (this is applied for on the portal by clicking "Support Documents"). Click "Submit" to complete the application and generate your invoice. You will be redirected to the Administration Fee page (₦64,500). Make the payment for the administrative fee. After making payment, your application status goes from pending, processing, queried(if additional information is needed from you) and then approved.',
+        "category": 'application'
+    },
+    {
+        "question": 'How Do I Apply for Recertification?',
+        "answer": 'Log in to the IDEC portal using your email and password. On the left-hand menu, click on "Certificate." At the top right corner, click on the three dots and select "Recertify." You will see that the recertify tab is locked. You need to send a recertification request by uploading a \'Recertification Request Letter\', to have it unlocked. This letter must clearly state the reason you are requesting for recertification. Upload the letter and click "Continue" to proceed. Once your request is submitted, wait for the recertify tab to be unlocked, then you can put up the recertification. Note that you must upload the previous certificate while uploading other documents. After submission, wait for the recertification to be processed and approved.',
+        "category": 'recertification'
+    },
+    {
+        "question": 'Can I Make More Than One Application?',
+        "answer": 'Yes, you can submit multiple applications through the IDEC portal. Each application must be submitted separately with its own project details and supporting documents.',
+        "category": 'application'
+    },
+    {
+        "question": 'How Long Can I use My IDEC?',
+        "answer": 'An approved IDEC certificate is valid for one year. Once it expires, you can apply to Revalidate it, which will extend its validity for an additional one year after which you would be required to apply for a new IDEC.',
+        "category": 'certificate'
+    },
+    {
+        "question": 'How Can I get My Approved IDEC Certificate?',
+        "answer": 'Log in to your IDEC portal. Click on "Certificate" in the left-hand menu. Select the approved certificate. Click "View", then download the certificate.',
+        "category": 'certificate'
+    },
+    {
+        "question": 'How Do I Make Payment?',
+        "answer": 'Mobile Transfer: Use your invoice number as the account number. The receiving bank is Parkway Ready cash/ Parkway Projects. The account name is B3D CBS-Federal Ministry of Finance, Budget and National planning. Remita Payment: Visit Remita.net. Click on "Bills & Purchases", then select "Pay RRR Invoice." Enter your invoice number and generate the RRR (Remita Retrieval Reference). Proceed to your bank or use online banking to complete the payment. Bank Transfer (In-Person): Visit any bank. Use your invoice number as the account number. The receiving bank is Parkway Ready cash/ Parkway Projects. The account name is B3D CBS-Federal Ministry of Finance, Budget and National planning.',
+        "category": 'payment'
+    },
+    {
+        "question": 'How Do I Generate My Surcharge Invoice?',
+        "answer": 'Log in to your IDEC portal using your email and password. Click on "Certificate" from the left-hand menu. Select the relevant certificate and click "View." Click on "View and Pay Invoice" to generate the surcharge invoice. Proceed with payment as directed.',
+        "category": 'payment'
+    },
+    {
+        "question": 'How Do I Apply for Revalidation?',
+        "answer": 'Log in to your IDEC portal using your email and password. Click on "Certificate" from the left-hand menu. Click on the three dots at the top-right corner of the certificate. Select "Revalidate." You will be prompted to upload a Revalidation Request Letter stating the reason for the revalidation. Upload the letter and click "Continue." Make a payment of ₦64,500 to initiate the process. Once approved, you may then request an extension of your IDEC.',
+        "category": 'revalidation'
+    },
+    {
+        "question": 'How Do I Utilize my Approved IDEC / How Can I Transmit my IDEC?',
+        "answer": 'Once your IDEC is approved: For corporate applicants, make payment of the 5% surcharge, send a copy of your PAAR (Pre-Arrival Assessment Report) and your IDEC certificate to support@idec.gov.ng. In your message, request for the transmission of your IDEC to Customs so that you can begin utilizing your IDEC.',
+        "category": 'utilization'
+    },
+    {
+        "question": 'How Can I Know my IDEC Transmission Status?',
+        "answer": 'To confirm your current status, kindly reach out to the IDEC support through any of the following channels: Email: support@idec.gov.ng, Phone: 02018880239',
+        "category": 'utilization'
+    },
+    {
+        "question": 'How Can I Apply for Support Letter?',
+        "answer": 'Log in to the IDEC portal using your email and password. Go to Support Documents → click Apply. Select your Benefitting Sector. Choose the relevant MDA (Ministry, Department, or Agency). Upload the required documents: Application letter, Pro forma invoice, CAC certificate, Tax clearance certificate, Form M. Fill in all the necessary details. Click Apply to submit your request.',
+        "category": 'support_letter'
+    },
+    {
+        "question": 'Can I clear a product that was not included in my IDEC?',
+        "answer": 'You can only clear items that are listed on your IDEC.',
+        "category": 'certificate'
+    },
+    {
+        "question": 'Can I add a product to my IDEC after issuance?',
+        "answer": 'No. Once your IDEC has been issued, additional items cannot be added.',
+        "category": 'certificate'
+    },
+    {
+        "question": 'Do I need to visit an MDA physically to apply for a support letter?',
+        "answer": 'There are some MDAs you do not need to visit to get a support letter. You can apply using the IDEC portal and they include: Ministry of Power, Ministry of Industry, Trade and Investment, Ministry of Agriculture and Food Security, Ministry of Health, Ministry of Petroleum Resources, Office of The Special Adviser To The President on Energy, Ministry of mines and steel development.',
+        "category": 'support_letter'
+    },
+    {
+        "question": 'How do I verify my certificate?',
+        "answer": 'On the IDEC portal landing page, Click "verify IDEC certificate" to verify your Approved IDEC certificate. Enter certificate number and click "verify".',
+        "category": 'certificate'
+    },
+    {
+        "question": 'Can I add insurance and freight to my IDEC after it has been issued/while processing?',
+        "answer": 'No, you can\'t add the insurance and freight.',
+        "category": 'certificate'
+    },
+    {
+        "question": 'How do I respond to a query when the product list is highlighted as the reason for the query?',
+        "answer": 'Read the comment on the query and effect the changes required on the product list(excel sheet), save and respond to the query with the updated product list.',
+        "category": 'application'
+    },
+    {
+        "question": 'How long is my generated invoice for the administrative fee valid?',
+        "answer": 'The IDEC administrative fee invoice is valid for 30 days.',
+        "category": 'payment'
+    },
+    {
+        "question": 'How do I view my utilization?',
+        "answer": 'Login to your IDEC portal, click on certificate, click on the three dotted (;) line, then click on view utilization.',
+        "category": 'utilization'
+    },
+    {
+        "question": 'Why do I get the \'Tin Validation Error\' while creating my IDEC account?',
+        "answer": 'When you get this error message, kindly visit the Tax Office to Register on TAX PROMAX and link your TIN to the Trade Portal afterwards.',
+        "category": 'account'
+    }
+]
+
+class HyperlinkProcessor:
+    """Class to handle hyperlink processing for IDEC responses"""
+    
+    @staticmethod
+    def convert_to_hyperlinks(text: str) -> str:
+        """Convert URLs and email addresses to HTML hyperlinks"""
+        # Use placeholders to prevent nested conversions
+        placeholders = {}
+        placeholder_counter = [0]
+        
+        def create_placeholder(content):
+            placeholder = f"___PLACEHOLDER_{placeholder_counter[0]}___"
+            placeholders[placeholder] = content
+            placeholder_counter[0] += 1
+            return placeholder
+        
+        # STEP 1: Convert email addresses to mailto links with placeholders
+        email_pattern = r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'
+        
+        def email_replacer(match):
+            email = match.group(1)
+            link = f'<a href="mailto:{email}" style="color: #0066cc; text-decoration: underline; font-weight: 500;">{email}</a>'
+            return create_placeholder(link)
+        
+        result = re.sub(email_pattern, email_replacer, text)
+        
+        # STEP 2: Convert URLs to hyperlinks (emails are now placeholders, so won't be affected)
+        url_pattern = r'((?:https?://)?(?:www\.)?[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?)'
+        
+        def url_replacer(match):
+            url = match.group(1)
+            # Skip if it's a placeholder
+            if '___PLACEHOLDER_' in url:
+                return url
+            
+            # Handle specific domain mappings
+            href = url
+            if not url.startswith('http'):
+                if 'idec.gov.ng' in url or 'www.idec.gov.ng' in url:
+                    href = url.replace('www.idec.gov.ng', 'https://idec.gov.ng')
+                    if not href.startswith('http'):
+                        href = f'https://{href}'
+                elif 'Remita.net' in url or 'remita.net' in url:
+                    href = 'https://remita.net'
+                elif url.startswith('www.'):
+                    href = f'https://{url[4:]}'
+                else:
+                    href = f'https://{url}'
+            
+            link = f'<a href="{href}" target="_blank" rel="noopener noreferrer" style="color: #0066cc; text-decoration: underline; font-weight: 500;">{url}</a>'
+            return create_placeholder(link)
+        
+        result = re.sub(url_pattern, url_replacer, result)
+        
+        # STEP 3: Replace placeholders with actual HTML
+        for placeholder, content in placeholders.items():
+            result = result.replace(placeholder, content)
+        
+        return result
+    
+    @staticmethod
+    def process_faq_answer(answer: str) -> str:
+        """Process FAQ answer to include hyperlinks"""
+        return HyperlinkProcessor.convert_to_hyperlinks(answer)
+
+class IDECRAGSystem:
+    def __init__(self):
+        self.collection_name = "idec_faqs"
+        # Initialize ChromaDB client as instance attribute
+        self.chroma_client = chromadb.Client()
+        self.hyperlink_processor = HyperlinkProcessor()
+        self.setup_vector_database()
+    
+    def setup_vector_database(self):
+        """Initialize ChromaDB collection with IDEC FAQs"""
+        try:
+            # Delete existing collection if it exists
+            try:
+                self.chroma_client.delete_collection(name=self.collection_name)
+            except:
+                pass
+            
+            # Create new collection
+            self.collection = self.chroma_client.create_collection(
+                name=self.collection_name,
+                metadata={"hnsw:space": "cosine"}
+            )
+            
+            # Prepare documents for embedding
+            documents = []
+            metadatas = []
+            ids = []
+            
+            for i, faq in enumerate(idec_faqs):
+                # Combine question and answer for better context
+                doc_text = f"Question: {faq['question']}\nAnswer: {faq['answer']}"
+                documents.append(doc_text)
+                metadatas.append({
+                    "category": faq['category'],
+                    "question": faq['question'],
+                    "answer": faq['answer']
+                })
+                ids.append(str(uuid.uuid4()))
+            
+            # Add documents to collection
+            self.collection.add(
+                documents=documents,
+                metadatas=metadatas,
+                ids=ids
+            )
+            
+            print(f"✅ Vector database initialized with {len(idec_faqs)} FAQs")
+            
+        except Exception as e:
+            print(f"❌ Error setting up vector database: {e}")
+    
+    def retrieve_relevant_faqs(self, query: str, n_results: int = 3) -> List[Dict]:
+        """Retrieve most relevant FAQs based on user query"""
+        try:
+            results = self.collection.query(
+                query_texts=[query],
+                n_results=n_results
+            )
+            
+            relevant_faqs = []
+            if results['metadatas'] and len(results['metadatas'][0]) > 0:
+                for metadata in results['metadatas'][0]:
+                    relevant_faqs.append({
+                        "question": metadata['question'],
+                        "answer": metadata['answer'],
+                        "category": metadata['category']
+                    })
+            
+            return relevant_faqs
+            
+        except Exception as e:
+            print(f"❌ Error retrieving FAQs: {e}")
+            return []
+    
+    def generate_rag_response(self, user_query: str, user_name: str = None, conversation_history: List[Dict] = None) -> Dict:
+        """Generate response using RAG with conversation context"""
+        try:
+            # Step 1: Retrieve relevant FAQs
+            relevant_faqs = self.retrieve_relevant_faqs(user_query, n_results=3)
+            
+            # Step 2: Build context from relevant FAQs
+            context = ""
+            if relevant_faqs:
+                context = "Here are relevant FAQs that might help answer the question:\n\n"
+                for i, faq in enumerate(relevant_faqs, 1):
+                    context += f"FAQ {i}:\nQ: {faq['question']}\nA: {faq['answer']}\n\n"
+            
+            # Step 3: Create system prompt with user context
+            user_context = f"The user's name is {user_name}." if user_name else ""
+            
+            # System prompt for IDEC support
+            system_prompt = f"""You are a friendly IDEC support assistant helping users with import duty exemption certificates in Nigeria. {user_context}
+
+TONE & STYLE - THIS IS CRITICAL:
+- Be warm, helpful, and show you care about their issue
+- Keep responses SHORT - aim for 2-4 sentences maximum
+- Use natural, conversational language like you're texting a friend
+- Show empathy when they're frustrated ("I know this is frustrating, let's fix it!")
+- End with a friendly offer to help more
+
+AVOID THESE:
+- Long explanations - get to the point quickly
+- Robotic phrases like "I have processed..." or "Please be advised..."
+- Repeating yourself or over-explaining
+- Multiple paragraphs when 1-2 sentences work
+- Using their name repeatedly (sounds fake)
+
+GOOD EXAMPLES:
+✅ "I see the issue! Go to idec.gov.ng, click 'Get Started', and follow the steps. You'll need your TIN ready!"
+✅ "Ah, that's frustrating! Your certificate is valid for one year. After that, you can revalidate it for another year."
+✅ "Got it! Login to your portal, click Certificate, then download it. Easy!"
+
+BAD EXAMPLES (too long/robotic):
+❌ "I understand you are experiencing difficulties with your account creation. This is a common issue that many users face. Let me provide you with some steps..."
+❌ "Thank you for reaching out. I would be happy to assist you with this matter. Based on the information provided in our system..."
+
+KEY RULES:
+1. Jump straight to the solution - no long intros
+2. Use the FAQ context provided but rewrite in your own friendly words
+3. If you don't know, guide them to support@idec.gov.ng
+4. Always use exact format for contacts: idec.gov.ng, support@idec.gov.ng
+5. Pay attention to conversation history - if they already tried your advice, offer alternatives instead of repeating
+6. For "thank you" messages: keep it super brief - just "You're welcome! Happy to help 😊" or similar
+7. Use names ONLY in initial greeting, then avoid unless adding personal touch after long conversation
+8. When mentioning websites/emails, use natural phrasing, never mention "FAQs" or "knowledge base"
+
+CONTACT INFO (use when relevant):
+- General support: support@idec.gov.ng
+- Phone: 02018880239
+- Website: idec.gov.ng
+- Payment: Parkway Ready cash/ Parkway Projects - B3D CBS-Federal Ministry of Finance"""
+            
+            # Step 4: Build conversation messages with history
+            messages = []
+            
+            # Add conversation history if available (last 6 messages)
+            if conversation_history:
+                for msg in conversation_history[-6:]:
+                    messages.append({
+                        "role": "user" if msg['role'] == "user" else "assistant",
+                        "content": msg['content']
+                    })
+            
+            # Step 5: Add current user query with context
+            if context:
+                current_prompt = f"{context}\n\nUser Question: {user_query}\n\nProvide a friendly, concise response based on the FAQ context and conversation history. Remember: be warm but brief!"
+            else:
+                current_prompt = f"User Question: {user_query}\n\nProvide a friendly, concise response about IDEC processes."
+            
+            messages.append({"role": "user", "content": current_prompt})
+            
+            # Step 6: Generate response using Claude
+            response = client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=450,
+                temperature=0.7,
+                system=system_prompt,
+                messages=messages
+            )
+            
+            raw_response = response.content[0].text
+            
+            # Step 7: Process response to add hyperlinks
+            processed_response = self.hyperlink_processor.convert_to_hyperlinks(raw_response)
+            
+            # Step 8: Return both versions
+            return {
+                "response": raw_response,
+                "response_with_links": processed_response,
+                "relevant_faqs": relevant_faqs,
+                "context_used": bool(context)
+            }
+            
+        except Exception as e:
+            print(f"❌ Error generating RAG response: {e}")
+            error_message = "Oops! I'm having a moment here. Can you try again, or reach out to support@idec.gov.ng?"
+            return {
+                "response": error_message,
+                "response_with_links": self.hyperlink_processor.convert_to_hyperlinks(error_message),
+                "relevant_faqs": [],
+                "context_used": False
+            }
+
+# Initialize RAG system
+rag_system = IDECRAGSystem()
+
+# Initialize conversation manager
+conversation_manager = ConversationManager()
+
+def extract_name_from_message(message: str) -> str:
+    """Extract name from user message"""
+    message_lower = message.lower().strip()
+    
+    # Common patterns for name introduction - ONLY explicit name patterns
+    name_patterns = [
+        r"my name is\s+(\w+)",
+        r"i'm\s+(\w+)",
+        r"i am\s+(\w+)",
+        r"call me\s+(\w+)",
+        r"it's\s+(\w+)",
+        r"this is\s+(\w+)",
+        r"name:\s*(\w+)",
+        r"^(\w+)$"  # Single word ONLY if it looks like a proper name
+    ]
+    
+    # Expanded list of common non-names to avoid
+    non_names = [
+        'hi', 'hello', 'hey', 'good', 'morning', 'afternoon', 'evening',
+        'yes', 'no', 'ok', 'okay', 'sure', 'please', 'help', 'thanks', 'thank',
+        'what', 'how', 'when', 'where', 'why', 'who', 'which',
+        'idec', 'certificate', 'portal', 'login', 'password', 'application',
+        'payment', 'support', 'problem', 'issue', 'error',
+        'can', 'will', 'should', 'could', 'would', 'need', 'want', 'like',
+        'get', 'have', 'make', 'take', 'give', 'find', 'know', 'think',
+        'see', 'look', 'check', 'try', 'use', 'work', 'go', 'come'
+    ]
+    
+    for pattern in name_patterns:
+        match = re.search(pattern, message_lower)
+        if match:
+            potential_name = match.group(1).strip()
+            
+            # For single word pattern, be more strict
+            if pattern == r"^(\w+)$":
+                # Must be at least 2 characters, start with capital when original, and not in non-names
+                original_word = message.strip()
+                if (len(potential_name) >= 2 and 
+                    potential_name.lower() not in non_names and 
+                    original_word[0].isupper() and  # Original message starts with capital
+                    original_word.isalpha()):  # Contains only letters
+                    return potential_name.capitalize()
+            else:
+                # For explicit patterns like "my name is", be less strict
+                if (len(potential_name) >= 2 and 
+                    potential_name.lower() not in non_names):
+                    return potential_name.capitalize()
+    
+    return None
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    user_input = request.json.get("message")
+    conversation_id = request.json.get("conversation_id")
+    
+    # Generate unique conversation_id if not provided
+    if not conversation_id or conversation_id == "default":
+        conversation_id = str(uuid.uuid4())
+        print(f"🆕 Generated new conversation_id: {conversation_id}")
+    
+    if not user_input:
+        return jsonify({"error": "No message received"}), 400
+    
+    try:
+        # Get or create conversation
+        conversation = conversation_manager.get_or_create_conversation(conversation_id)
+        user_name = conversation.get('user_name')
+        
+        # If no name in conversation, first check if this is a name response
+        if not user_name:
+            extracted_name = extract_name_from_message(user_input)
+            if extracted_name:
+                conversation_manager.set_user_name(conversation_id, extracted_name)
+                user_name = extracted_name
+                # Acknowledge the name and ask how to help
+                response = f"Hello {user_name}! Nice to meet you 😊 How can I help you with IDEC today?"
+                processed_response = rag_system.hyperlink_processor.convert_to_hyperlinks(response)
+                
+                # Store the bot's greeting in history
+                conversation_manager.add_message(conversation_id, "assistant", response)
+                
+                return jsonify({
+                    "reply": processed_response,
+                    "raw_reply": response,
+                    "relevant_faqs": [],
+                    "context_used": False,
+                    "name_captured": True,
+                    "conversation_id": conversation_id
+                })
+            else:
+                # Ask for name if not provided and not in conversation
+                # Don't treat greetings as requests for help
+                greeting_words = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening']
+                if any(greeting in user_input.lower() for greeting in greeting_words):
+                    response = "Hello! May I know your name?"
+                    conversation_manager.add_message(conversation_id, "assistant", response)
+                    return jsonify({
+                        "reply": response,
+                        "raw_reply": response,
+                        "relevant_faqs": [],
+                        "context_used": False,
+                        "asking_for_name": True,
+                        "conversation_id": conversation_id
+                    })
+                else:
+                    response = "May I know your name?"
+                    conversation_manager.add_message(conversation_id, "assistant", response)
+                    return jsonify({
+                        "reply": response,
+                        "raw_reply": response,
+                        "relevant_faqs": [],
+                        "context_used": False,
+                        "asking_for_name": True,
+                        "conversation_id": conversation_id
+                    })
+        
+        # Store user message in history
+        conversation_manager.add_message(conversation_id, "user", user_input)
+        
+        # Get conversation history
+        conversation_history = conversation_manager.get_conversation_history(conversation_id)
+        
+        # Generate response using RAG with user name and conversation history
+        response_data = rag_system.generate_rag_response(
+            user_input, 
+            user_name,
+            conversation_history
+        )
+        
+        # Store bot response in history
+        conversation_manager.add_message(conversation_id, "assistant", response_data["response"])
+        
+        return jsonify({
+            "reply": response_data["response_with_links"],  # Send processed response with links
+            "raw_reply": response_data["response"],  # Also include raw response
+            "relevant_faqs": response_data["relevant_faqs"],
+            "context_used": response_data["context_used"],
+            "user_name": user_name,
+            "conversation_id": conversation_id
+        })
+    
+    except Exception as e:
+        print(f"❌ Error in chat endpoint: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+# NEW ENDPOINT: Get conversation history for persistence
+@app.route("/get-conversation", methods=["POST"])
+def get_conversation():
+    """Get full conversation history for a given conversation_id"""
+    conversation_id = request.json.get("conversation_id")
+    
+    if not conversation_id:
+        return jsonify({"error": "No conversation_id provided"}), 400
+    
+    try:
+        conversation_data = conversation_manager.get_full_conversation(conversation_id)
+        
+        if conversation_data:
+            # Process messages to add hyperlinks
+            processed_messages = []
+            for msg in conversation_data.get('messages', []):
+                processed_content = rag_system.hyperlink_processor.convert_to_hyperlinks(msg['content'])
+                processed_messages.append({
+                    'role': msg['role'],
+                    'content': processed_content,
+                    'raw_content': msg['content'],
+                    'timestamp': msg.get('timestamp')
+                })
+            
+            return jsonify({
+                "success": True,
+                "conversation_id": conversation_id,
+                "user_name": conversation_data.get('user_name'),
+                "messages": processed_messages,
+                "created_at": conversation_data.get('created_at'),
+                "last_activity": conversation_data.get('last_activity')
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Conversation not found"
+            }), 404
+    
+    except Exception as e:
+        print(f"❌ Error in get-conversation endpoint: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/reset-session", methods=["POST"])
+def reset_session():
+    """Reset user session (clear name)"""
+    session.clear()
+    return jsonify({"message": "Session reset successfully"})
+
+@app.route("/get-session", methods=["GET"])
+def get_session():
+    """Get current session info"""
+    return jsonify({
+        "user_name": session.get('user_name'),
+        "has_name": bool(session.get('user_name'))
+    })
+
+@app.route("/search", methods=["POST"])
+def search_faqs():
+    """Endpoint to search FAQs directly"""
+    query = request.json.get("query")
+    if not query:
+        return jsonify({"error": "No query provided"}), 400
+    
+    try:
+        relevant_faqs = rag_system.retrieve_relevant_faqs(query, n_results=5)
+        return jsonify({"faqs": relevant_faqs})
+    
+    except Exception as e:
+        print(f"❌ Error in search endpoint: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "healthy",
+        "rag_system": "operational",
+        "model": "claude-sonnet-4-5",
+        "total_faqs": len(idec_faqs),
+        "hyperlink_processing": "enabled",
+        "session_support": "enabled",
+        "conversation_memory": "enabled",
+        "conversation_persistence": "enabled"
+    })
+
+@app.route("/process-text", methods=["POST"])
+def process_text():
+    """Endpoint to process any text and add hyperlinks"""
+    text = request.json.get("text")
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+    
+    try:
+        processed_text = rag_system.hyperlink_processor.convert_to_hyperlinks(text)
+        return jsonify({
+            "original_text": text,
+            "processed_text": processed_text
+        })
+    
+    except Exception as e:
+        print(f"❌ Error in process-text endpoint: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+# Frontend and Static Serving
+@app.route('/')
+def serve_frontend():
+    """Serve the main frontend page"""
+    try:
+        return send_file('frontend/index2.html')
+    except Exception as e:
+        print(f"Error serving frontend: {e}")
+        return f"Frontend error: {e}", 500
+
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    """Serve static files"""
+    try:
+        return send_from_directory('frontend', filename)
+    except Exception as e:
+        return f"Static file error: {e}", 404
+
+if __name__ == "__main__":
+    port = int(os.environ.get('PORT', 8080))
+    print(f"🚀 Starting IDEC Chatbot with Claude Sonnet 4.5 on port {port}")
+    print(f"📁 Working directory: {os.getcwd()}")
+    print(f"📄 Frontend exists: {os.path.exists('frontend/index2.html')}")
+    
+    app.run(
+        host='0.0.0.0',  # MUST be 0.0.0.0 for Cloud Run
+        port=port,
+        debug=False,  # Disable debug in production
+        threaded=True
+    )

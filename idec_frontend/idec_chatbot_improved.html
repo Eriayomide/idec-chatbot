@@ -663,7 +663,7 @@
                 document.getElementById('messages-container').innerHTML = '';
                 
                 // Add welcome message with Tosan's introduction
-                addMessage('bot', "Hello! My name is Tosan. I'm your IDEC support assistant. How can I help you today?");
+                addMessage('bot', "Hello! My name is Tosan. I'm your IDEC support assistant.");
                 console.log('✅ Chat reset successfully');
                 
             } catch (error) {
@@ -708,7 +708,7 @@
                 if (!restored) {
                     // No previous conversation, show welcome message
                     setTimeout(() => {
-                        addMessage('bot', "Hello! My name is Tosan. I'm your IDEC support assistant. How can I help you today?");
+                        addMessage('bot', "Hello! My name is Tosan. I'm your IDEC support assistant.");
                     }, 500);
                 }
             }

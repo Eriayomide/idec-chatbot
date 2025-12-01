@@ -494,7 +494,7 @@ def extract_name_from_message(message: str) -> str:
         r"it's\s+(\w+)",
         r"this is\s+(\w+)",
         r"name:\s*(\w+)",
-        r"^(\w+)$"  # Single word ONLY if it looks like a proper name
+        r"^([a-zA-Z]{2,})$"  # Single word with at least 2 letters (any case)
     ]
     
     # Expanded list of common non-names to avoid

@@ -24,11 +24,11 @@ COPY frontend/ ./frontend/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV PORT=8080
+ENV PORT=8082
 # ENV SENTENCE_TRANSFORMERS_HOME=/root/.cache/torch/sentence_transformers
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8082
 
 # Start the application
 CMD ["python", "idec_chatbot.py"]

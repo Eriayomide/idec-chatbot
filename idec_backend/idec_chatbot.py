@@ -446,7 +446,7 @@ CONTACT INFO (use when relevant):
             # Step 6: Generate response using Claude
             response = client.messages.create(
                 model="claude-sonnet-4-5-20250929",
-                max_tokens=450,
+                max_tokens=300,
                 temperature=0.7,
                 system=system_prompt,
                 messages=messages
@@ -494,7 +494,7 @@ def extract_name_from_message(message: str) -> str:
         r"it's\s+(\w+)",
         r"this is\s+(\w+)",
         r"name:\s*(\w+)",
-        r"^([a-zA-Z]{2,})$"  # Single word with at least 2 letters (any case)
+        r"^([a-zA-Z]{2,}(?:\s+[a-zA-Z]{2,})?)$"  # One or two words with at least 2 letters each
     ]
     
     # Expanded list of common non-names to avoid

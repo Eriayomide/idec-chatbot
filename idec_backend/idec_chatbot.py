@@ -742,9 +742,15 @@ def serve_frontend():
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
-    """Serve static files"""
+    """Serve static files with correct MIME types and CORS"""
     try:
-        return send_from_directory('frontend', filename)
+        response = send_from_directory('frontend', filename)
+        # Set correct MIME type for JavaScript files
+        if filename.endswith('.js'):
+            response.headers['Content-Type'] = 'application/javascript'
+        # Allow cross-origin loading (needed for widget embedding)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
     except Exception as e:
         return f"Static file error: {e}", 404
 

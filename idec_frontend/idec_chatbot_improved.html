@@ -50,8 +50,6 @@
         box-shadow: none;
       }
 
-      /* Hide the chatbot header when inside the widget iframe
-         (the widget wrapper already shows one) */
       body.in-iframe .chat-header {
         display: none;
       }
@@ -520,6 +518,34 @@
       var AVATAR_IMAGE =
         "https://raw.githubusercontent.com/Eriayomide/vreg-chatbot/main/ada_avatar.png";
 
+      /* ── Lightweight Markdown → HTML parser ─────── */
+      function parseMarkdown(text) {
+        if (!text) return text;
+        // Protect existing HTML tags (links from backend)
+        var savedLinks = [];
+        var s = text.replace(/<a\b[^>]*>.*?<\/a>/gi, function (match) {
+          savedLinks.push(match);
+          return "%%LINK" + (savedLinks.length - 1) + "%%";
+        });
+        // Bold: **text** or __text__
+        s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+        s = s.replace(/__(.+?)__/g, "<strong>$1</strong>");
+        // Italic: *text* or _text_ (but not inside words)
+        s = s.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, "<em>$1</em>");
+        s = s.replace(/(?<!\w)_([^_]+?)_(?!\w)/g, "<em>$1</em>");
+        // Numbered lists: "1. item" at start of line
+        s = s.replace(/(\d+)\.\s+/g, "<br>$1. ");
+        // Line breaks
+        s = s.replace(/\n/g, "<br>");
+        // Restore protected links
+        for (var i = 0; i < savedLinks.length; i++) {
+          s = s.replace("%%LINK" + i + "%%", savedLinks[i]);
+        }
+        // Clean up leading <br>
+        s = s.replace(/^(<br>)+/, "");
+        return s;
+      }
+
       /* ── Detect iframe (widget) mode ───────────── */
       (function detectIframe() {
         try {
@@ -583,7 +609,7 @@
 
         var bubble = document.createElement("div");
         bubble.className = "bubble";
-        bubble.innerHTML = content;
+        bubble.innerHTML = type === "bot" ? parseMarkdown(content) : content;
         row.appendChild(bubble);
         c.appendChild(row);
         c.scrollTop = c.scrollHeight;

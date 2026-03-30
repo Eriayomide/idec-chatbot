@@ -12,51 +12,75 @@
       }
 
       body {
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #a8b7c0 0%, #8a9ba6 100%);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: #eef1f3;
         height: 100vh;
         display: flex;
         justify-content: center;
         align-items: center;
       }
 
+      /* ── Standalone mode (direct URL access) ────── */
       .chat-container {
-        width: 90%;
-        max-width: 600px;
-        height: 90vh;
-        background: white;
-        border-radius: 20px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        width: 100%;
+        max-width: 420px;
+        height: 92vh;
+        max-height: 680px;
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        position: relative;
       }
 
+      /* ── When inside an iframe (widget mode) ────── */
+      body.in-iframe {
+        background: #fff;
+      }
+
+      body.in-iframe .chat-container {
+        max-width: 100%;
+        width: 100%;
+        height: 100vh;
+        max-height: 100vh;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      /* Hide the chatbot header when inside the widget iframe
+         (the widget wrapper already shows one) */
+      body.in-iframe .chat-header {
+        display: none;
+      }
+
+      /* ── Header (only visible standalone) ────────── */
       .chat-header {
-        background: linear-gradient(135deg, #a8b7c0 0%, #8a9ba6 100%);
-        color: white;
-        padding: 20px;
+        background: linear-gradient(135deg, #5a7a8a 0%, #4a6a7a 100%);
+        color: #fff;
+        padding: 14px 16px;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-shrink: 0;
       }
 
       .header-left {
         display: flex;
         align-items: center;
-        gap: 15px;
+        gap: 10px;
       }
 
       .avatar-container {
-        width: 50px;
-        height: 50px;
+        width: 38px;
+        height: 38px;
         border-radius: 50%;
         overflow: hidden;
-        border: 3px solid rgba(255, 255, 255, 0.3);
-        background: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.15);
+        flex-shrink: 0;
       }
 
       .avatar-container img {
@@ -65,308 +89,359 @@
         object-fit: cover;
       }
 
-      /* Fallback avatar with initials */
       .avatar-fallback {
         width: 100%;
         height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: linear-gradient(135deg, #a8b7c0 0%, #8a9ba6 100%);
-        color: white;
-        font-size: 20px;
-        font-weight: bold;
+        color: #fff;
+        font-size: 16px;
+        font-weight: 600;
       }
 
       .header-info h1 {
-        font-size: 18px;
+        font-size: 15px;
         font-weight: 600;
-        margin-bottom: 3px;
+        line-height: 1.2;
       }
 
       .header-info p {
-        font-size: 12px;
-        opacity: 0.9;
+        font-size: 11px;
+        opacity: 0.85;
+        margin-top: 1px;
       }
 
-      .connection-status {
+      .status-dot {
         display: inline-block;
-        width: 8px;
-        height: 8px;
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
         background: #4ade80;
-        margin-right: 5px;
+        margin-right: 4px;
         animation: pulse 2s infinite;
       }
 
-      .connection-status.disconnected {
+      .status-dot.off {
         background: #ef4444;
+        animation: none;
       }
 
       @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
-        }
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
       }
 
       .reset-btn {
-        background: rgba(255, 255, 255, 0.2);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        color: white;
-        padding: 8px 15px;
-        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        color: #fff;
+        padding: 6px 12px;
+        border-radius: 6px;
         cursor: pointer;
-        font-size: 14px;
-        transition: all 0.3s;
+        font-size: 12px;
+        font-weight: 500;
+        transition: background 0.2s;
       }
 
       .reset-btn:hover {
-        background: rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.25);
       }
 
-      .messages-container {
+      /* ── Messages area ──────────────────────────── */
+      .messages-area {
         flex: 1;
         overflow-y: auto;
-        padding: 20px;
-        background: #f5f5f5;
+        padding: 16px;
+        background: #f7f8fa;
       }
 
-      .message {
-        margin-bottom: 15px;
+      .messages-area::-webkit-scrollbar { width: 4px; }
+      .messages-area::-webkit-scrollbar-track { background: transparent; }
+      .messages-area::-webkit-scrollbar-thumb {
+        background: #ccc;
+        border-radius: 4px;
+      }
+
+      /* ── Message bubbles ─────────────────────────── */
+      .msg {
+        margin-bottom: 12px;
         display: flex;
-        animation: slideIn 0.3s ease;
+        animation: slideUp 0.25s ease;
       }
 
-      @keyframes slideIn {
-        from {
-          opacity: 0;
-          transform: translateY(10px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
+      @keyframes slideUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
       }
 
-      .message.user {
-        justify-content: flex-end;
-      }
+      .msg.user { justify-content: flex-end; }
 
-      .message.bot {
+      .msg.bot {
         justify-content: flex-start;
         align-items: flex-start;
-        gap: 10px;
+        gap: 8px;
       }
 
-      .message.system {
-        justify-content: center;
-      }
+      .msg.system { justify-content: center; }
 
-      .bot-avatar {
-        width: 35px;
-        height: 35px;
+      .bot-av {
+        width: 30px;
+        height: 30px;
         border-radius: 50%;
         overflow: hidden;
         flex-shrink: 0;
-        margin-top: 5px;
-        border: 2px solid #a8b7c0;
-        background: white;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        margin-top: 2px;
+        border: 1.5px solid #c8d3da;
+        background: #fff;
       }
 
-      .bot-avatar img {
+      .bot-av img {
         width: 100%;
         height: 100%;
         object-fit: cover;
       }
 
-      .bot-avatar-fallback {
+      .bot-av-fb {
         width: 100%;
         height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: linear-gradient(135deg, #a8b7c0 0%, #8a9ba6 100%);
-        color: white;
-        font-size: 14px;
-        font-weight: bold;
+        background: linear-gradient(135deg, #5a7a8a, #4a6a7a);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
       }
 
-      .message-content {
-        max-width: 70%;
-        padding: 12px 16px;
-        border-radius: 18px;
+      .bubble {
+        max-width: 78%;
+        padding: 10px 14px;
+        border-radius: 16px;
+        font-size: 13.5px;
+        line-height: 1.5;
         word-wrap: break-word;
       }
 
-      .message.user .message-content {
-        background: linear-gradient(135deg, #a8b7c0 0%, #8a9ba6 100%);
-        color: white;
+      .msg.user .bubble {
+        background: linear-gradient(135deg, #5a7a8a 0%, #4a6a7a 100%);
+        color: #fff;
         border-bottom-right-radius: 4px;
       }
 
-      .message.bot .message-content {
-        background: white;
+      .msg.bot .bubble {
+        background: #fff;
         color: #333;
         border-bottom-left-radius: 4px;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
       }
 
-      .message.system .message-content {
+      .msg.system .bubble {
         background: #fef3c7;
         color: #92400e;
-        font-size: 12px;
+        font-size: 11px;
         max-width: 90%;
+        padding: 6px 12px;
+        border-radius: 8px;
       }
 
-      /* Style for links in messages */
-      .message-content a {
+      .bubble a {
         color: #0066cc;
         text-decoration: underline;
         font-weight: 500;
-        transition: color 0.2s;
       }
 
-      .message-content a:hover {
-        color: #0052a3;
-        text-decoration: underline;
+      .bubble a:hover {
+        color: #004fa3;
       }
 
-      /* Style for bold text */
-      .message-content strong {
-        font-weight: 600;
-        color: #1a1a1a;
-      }
-
-      /* Typing indicator */
-      .typing-indicator {
-        padding: 12px 16px;
-        border-radius: 18px;
-        background: white;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      /* ── Typing dots ─────────────────────────────── */
+      .typing-dots {
+        padding: 10px 14px;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
         display: inline-flex;
         gap: 4px;
+        border-bottom-left-radius: 4px;
       }
 
-      .typing-indicator span {
-        width: 8px;
-        height: 8px;
+      .typing-dots span {
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
-        background: #a8b7c0;
-        animation: typing 1.4s infinite;
+        background: #a0b0ba;
+        animation: bounce 1.4s infinite;
       }
 
-      .typing-indicator span:nth-child(2) {
-        animation-delay: 0.2s;
+      .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+      .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+      @keyframes bounce {
+        0%, 60%, 100% { transform: translateY(0); }
+        30% { transform: translateY(-8px); }
       }
 
-      .typing-indicator span:nth-child(3) {
-        animation-delay: 0.4s;
+      /* ── Input bar ───────────────────────────────── */
+      .input-bar {
+        padding: 12px 14px;
+        background: #fff;
+        border-top: 1px solid #eee;
+        flex-shrink: 0;
       }
 
-      @keyframes typing {
-        0%,
-        60%,
-        100% {
-          transform: translateY(0);
-        }
-        30% {
-          transform: translateY(-10px);
-        }
-      }
-
-      .input-container {
-        padding: 20px;
-        background: white;
-        border-top: 1px solid #e5e7eb;
-      }
-
-      .input-wrapper {
+      .input-row {
         display: flex;
-        gap: 10px;
+        gap: 8px;
         align-items: center;
       }
 
       #user-input {
         flex: 1;
-        padding: 12px 16px;
-        border: 2px solid #e5e7eb;
-        border-radius: 25px;
-        font-size: 14px;
+        padding: 10px 14px;
+        border: 1.5px solid #e0e4e8;
+        border-radius: 20px;
+        font-size: 13.5px;
         outline: none;
-        transition: border-color 0.3s;
+        transition: border-color 0.2s;
+        font-family: inherit;
       }
 
       #user-input:focus {
-        border-color: #a8b7c0;
+        border-color: #5a7a8a;
       }
 
       #user-input:disabled {
-        background: #f9fafb;
+        background: #fafafa;
         cursor: not-allowed;
       }
 
       #send-btn {
-        width: 45px;
-        height: 45px;
+        width: 38px;
+        height: 38px;
         border-radius: 50%;
         border: none;
-        background: linear-gradient(135deg, #a8b7c0 0%, #8a9ba6 100%);
-        color: white;
+        background: linear-gradient(135deg, #5a7a8a 0%, #4a6a7a 100%);
+        color: #fff;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: transform 0.2s;
+        transition: transform 0.15s;
+        flex-shrink: 0;
       }
 
-      #send-btn:hover:not(:disabled) {
-        transform: scale(1.1);
+      #send-btn:hover:not(:disabled) { transform: scale(1.08); }
+      #send-btn:active { transform: scale(0.93); }
+      #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+      /* ── Powered-by footer (widget mode only) ───── */
+      .powered-by {
+        display: none;
+        text-align: center;
+        padding: 5px;
+        font-size: 10px;
+        color: #bbb;
+        background: #fff;
+        border-top: 1px solid #f0f0f0;
+        flex-shrink: 0;
       }
 
-      #send-btn:active {
-        transform: scale(0.95);
+      body.in-iframe .powered-by {
+        display: block;
       }
 
-      #send-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
+      /* ── Custom Confirm Modal ────────────────────── */
+      .modal-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.35);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
       }
 
-      /* Scrollbar styling */
-      .messages-container::-webkit-scrollbar {
-        width: 6px;
+      .modal-overlay.active {
+        display: flex;
       }
 
-      .messages-container::-webkit-scrollbar-track {
-        background: #f1f1f1;
+      .modal-box {
+        background: #fff;
+        border-radius: 14px;
+        padding: 22px 20px;
+        width: 85%;
+        max-width: 280px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+        text-align: center;
+        animation: popIn 0.2s ease;
       }
 
-      .messages-container::-webkit-scrollbar-thumb {
-        background: #c1c1c1;
-        border-radius: 3px;
+      @keyframes popIn {
+        from { transform: scale(0.92); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
       }
 
-      .messages-container::-webkit-scrollbar-thumb:hover {
-        background: #a1a1a1;
+      .modal-icon {
+        font-size: 28px;
+        margin-bottom: 10px;
       }
+
+      .modal-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 6px;
+      }
+
+      .modal-text {
+        font-size: 13px;
+        color: #777;
+        margin-bottom: 18px;
+        line-height: 1.4;
+      }
+
+      .modal-btns {
+        display: flex;
+        gap: 8px;
+      }
+
+      .modal-btn {
+        flex: 1;
+        padding: 9px 14px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+        transition: background 0.2s;
+        font-family: inherit;
+      }
+
+      .modal-btn.cancel {
+        background: #f3f4f6;
+        color: #555;
+      }
+
+      .modal-btn.cancel:hover { background: #e5e7eb; }
+
+      .modal-btn.danger {
+        background: #ef4444;
+        color: #fff;
+      }
+
+      .modal-btn.danger:hover { background: #dc2626; }
     </style>
   </head>
   <body>
     <div class="chat-container">
-      <!-- Header -->
+      <!-- Header (hidden automatically in widget/iframe mode) -->
       <div class="chat-header">
         <div class="header-left">
           <div class="avatar-container">
             <img
               src="https://raw.githubusercontent.com/Eriayomide/vreg-chatbot/main/ada_avatar.png"
-              alt="Tosan Avatar"
+              alt="Tosan"
               onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
             />
             <div class="avatar-fallback" style="display: none">T</div>
@@ -374,22 +449,22 @@
           <div class="header-info">
             <h1>Tosan - IDEC Support</h1>
             <p>
-              <span class="connection-status" id="connection-status"></span>
+              <span class="status-dot" id="connection-status"></span>
               <span id="status-text">Online</span>
             </p>
           </div>
         </div>
-        <button class="reset-btn" onclick="resetChat()">Reset Chat</button>
+        <button class="reset-btn" onclick="showResetConfirm()">
+          Reset Chat
+        </button>
       </div>
 
-      <!-- Messages Container -->
-      <div class="messages-container" id="messages-container">
-        <!-- Messages will be added here dynamically -->
-      </div>
+      <!-- Messages -->
+      <div class="messages-area" id="messages-container"></div>
 
-      <!-- Input Container -->
-      <div class="input-container">
-        <div class="input-wrapper">
+      <!-- Input -->
+      <div class="input-bar">
+        <div class="input-row">
           <input
             type="text"
             id="user-input"
@@ -398,12 +473,12 @@
           />
           <button id="send-btn" onclick="sendMessage()">
             <svg
-              width="20"
-              height="20"
+              width="17"
+              height="17"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="2.2"
             >
               <line x1="22" y1="2" x2="11" y2="13"></line>
               <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -411,328 +486,285 @@
           </button>
         </div>
       </div>
+
+      <!-- Powered-by (only visible in widget mode) -->
+      <div class="powered-by">Powered by Tosan &middot; IDEC Support</div>
+
+      <!-- Custom Reset Modal (replaces native confirm — no IP leak) -->
+      <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-box">
+          <div class="modal-icon">🔄</div>
+          <div class="modal-title">Reset Chat?</div>
+          <div class="modal-text">
+            This will clear your conversation and start fresh.
+          </div>
+          <div class="modal-btns">
+            <button class="modal-btn cancel" onclick="hideResetConfirm()">
+              Cancel
+            </button>
+            <button class="modal-btn danger" onclick="confirmReset()">
+              Reset
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
-      // 🌐 Configuration - Auto-detect if localhost or Cloud Run
-      const API_BASE_URL = window.location.hostname === "localhost" ? "http://localhost:8002" : "";
+      /* ── Config ───────────────────────────────────── */
+      var API_BASE_URL =
+        window.location.hostname === "localhost"
+          ? "http://localhost:8002"
+          : "";
 
-      const AVATAR_IMAGE =
+      var AVATAR_IMAGE =
         "https://raw.githubusercontent.com/Eriayomide/vreg-chatbot/main/ada_avatar.png";
 
-      // State management
-      let conversationId = localStorage.getItem("idec_conversation_id") || null;
-      let currentUserName = null;
+      /* ── Detect iframe (widget) mode ───────────── */
+      (function detectIframe() {
+        try {
+          if (window.self !== window.top) {
+            document.body.classList.add("in-iframe");
+          }
+        } catch (e) {
+          document.body.classList.add("in-iframe");
+        }
+      })();
 
-      // Update connection status indicator
-      function updateConnectionStatus(connected) {
-        const statusDot = document.getElementById("connection-status");
-        const statusText = document.getElementById("status-text");
+      /* ── State ──────────────────────────────────── */
+      var conversationId =
+        localStorage.getItem("idec_conversation_id") || null;
+      var currentUserName = null;
 
-        if (connected) {
-          statusDot.classList.remove("disconnected");
-          statusText.textContent = "Online";
+      /* ── Connection status ──────────────────────── */
+      function updateConnectionStatus(ok) {
+        var dot = document.getElementById("connection-status");
+        var txt = document.getElementById("status-text");
+        if (!dot || !txt) return;
+        if (ok) {
+          dot.classList.remove("off");
+          txt.textContent = "Online";
         } else {
-          statusDot.classList.add("disconnected");
-          statusText.textContent = "Offline";
+          dot.classList.add("off");
+          txt.textContent = "Offline";
         }
       }
 
-      // Add message to chat
+      /* ── Custom confirm modal ───────────────────── */
+      function showResetConfirm() {
+        document.getElementById("modal-overlay").classList.add("active");
+      }
+
+      function hideResetConfirm() {
+        document.getElementById("modal-overlay").classList.remove("active");
+      }
+
+      function confirmReset() {
+        hideResetConfirm();
+        resetChat();
+      }
+
+      /* ── Add message to chat ────────────────────── */
       function addMessage(type, content) {
-        const messagesContainer = document.getElementById("messages-container");
+        var c = document.getElementById("messages-container");
+        var row = document.createElement("div");
+        row.className = "msg " + type;
 
-        const messageDiv = document.createElement("div");
-        messageDiv.className = `message ${type}`;
-
-        // Add bot avatar for bot messages
         if (type === "bot") {
-          const avatarDiv = document.createElement("div");
-          avatarDiv.className = "bot-avatar";
-          avatarDiv.innerHTML = `
-                    <img src="${AVATAR_IMAGE}" alt="Tosan" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                    <div class="bot-avatar-fallback" style="display: none;">T</div>
-                `;
-          messageDiv.appendChild(avatarDiv);
+          var av = document.createElement("div");
+          av.className = "bot-av";
+          av.innerHTML =
+            '<img src="' +
+            AVATAR_IMAGE +
+            '" alt="T" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+            '<div class="bot-av-fb" style="display:none">T</div>';
+          row.appendChild(av);
         }
 
-        const messageContent = document.createElement("div");
-        messageContent.className = "message-content";
-        messageContent.innerHTML = content;
-
-        messageDiv.appendChild(messageContent);
-        messagesContainer.appendChild(messageDiv);
-
-        // Scroll to bottom
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        var bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.innerHTML = content;
+        row.appendChild(bubble);
+        c.appendChild(row);
+        c.scrollTop = c.scrollHeight;
       }
 
-      // Add system message
       function addSystemMessage(content) {
-        const messagesContainer = document.getElementById("messages-container");
-
-        const messageDiv = document.createElement("div");
-        messageDiv.className = "message system";
-
-        const messageContent = document.createElement("div");
-        messageContent.className = "message-content";
-        messageContent.textContent = content;
-
-        messageDiv.appendChild(messageContent);
-        messagesContainer.appendChild(messageDiv);
-
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        var c = document.getElementById("messages-container");
+        var row = document.createElement("div");
+        row.className = "msg system";
+        var bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.textContent = content;
+        row.appendChild(bubble);
+        c.appendChild(row);
+        c.scrollTop = c.scrollHeight;
       }
 
-      // Show typing indicator
-      function showTypingIndicator() {
-        const messagesContainer = document.getElementById("messages-container");
+      /* ── Typing indicator ───────────────────────── */
+      function showTyping() {
+        var c = document.getElementById("messages-container");
+        var row = document.createElement("div");
+        row.className = "msg bot";
+        row.id = "typing-row";
 
-        const typingDiv = document.createElement("div");
-        typingDiv.className = "message bot";
-        typingDiv.id = "typing-indicator-wrapper";
+        var av = document.createElement("div");
+        av.className = "bot-av";
+        av.innerHTML =
+          '<img src="' +
+          AVATAR_IMAGE +
+          '" alt="T" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+          '<div class="bot-av-fb" style="display:none">T</div>';
+        row.appendChild(av);
 
-        // Add avatar
-        const avatarDiv = document.createElement("div");
-        avatarDiv.className = "bot-avatar";
-        avatarDiv.innerHTML = `
-                <img src="${AVATAR_IMAGE}" alt="Tosan" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                <div class="bot-avatar-fallback" style="display: none;">T</div>
-            `;
-        typingDiv.appendChild(avatarDiv);
+        var dots = document.createElement("div");
+        dots.className = "typing-dots";
+        dots.innerHTML = "<span></span><span></span><span></span>";
+        row.appendChild(dots);
 
-        const typingContent = document.createElement("div");
-        typingContent.className = "typing-indicator active";
-        typingContent.innerHTML = "<span></span><span></span><span></span>";
-
-        typingDiv.appendChild(typingContent);
-        messagesContainer.appendChild(typingDiv);
-
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        c.appendChild(row);
+        c.scrollTop = c.scrollHeight;
       }
 
-      // Remove typing indicator
-      function removeTypingIndicator() {
-        const typingIndicator = document.getElementById(
-          "typing-indicator-wrapper"
-        );
-        if (typingIndicator) {
-          typingIndicator.remove();
-        }
+      function hideTyping() {
+        var el = document.getElementById("typing-row");
+        if (el) el.remove();
       }
 
-      // Restore conversation from backend
+      /* ── Restore conversation ───────────────────── */
       async function restoreConversation() {
-        if (!conversationId) {
-          console.log("🆕 No existing conversation found");
-          return false;
-        }
+        if (!conversationId) return false;
 
         try {
-          console.log("🔄 Restoring conversation:", conversationId);
-
-          const response = await fetch(`${API_BASE_URL}/get-conversation`, {
+          var res = await fetch(API_BASE_URL + "/get-conversation", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ conversation_id: conversationId }),
           });
-
-          const data = await response.json();
+          var data = await res.json();
 
           if (data.success && data.messages && data.messages.length > 0) {
-            console.log(
-              "✅ Restored conversation with",
-              data.messages.length,
-              "messages"
-            );
-
-            // Restore user name
             currentUserName = data.user_name;
-
-            // Clear the chat messages container
-            const messagesContainer =
-              document.getElementById("messages-container");
-            messagesContainer.innerHTML = "";
-
-            // Render all messages
-            data.messages.forEach((msg) => {
-              if (msg.role === "user") {
-                addMessage("user", msg.content);
-              } else if (msg.role === "assistant") {
-                addMessage("bot", msg.content);
-              }
+            document.getElementById("messages-container").innerHTML = "";
+            data.messages.forEach(function (m) {
+              addMessage(
+                m.role === "user" ? "user" : "bot",
+                m.content
+              );
             });
-
             return true;
-          } else {
-            console.log("⚠️ No conversation history found");
-            return false;
           }
-        } catch (error) {
-          console.error("❌ Error restoring conversation:", error);
+          return false;
+        } catch (e) {
+          console.error("Restore error:", e);
           return false;
         }
       }
 
-      // Send message to backend
+      /* ── Send message ───────────────────────────── */
       async function sendMessage() {
-        const input = document.getElementById("user-input");
-        const sendBtn = document.getElementById("send-btn");
-        const message = input.value.trim();
-
+        var input = document.getElementById("user-input");
+        var btn = document.getElementById("send-btn");
+        var message = input.value.trim();
         if (!message) return;
 
-        // Disable input while sending
         input.disabled = true;
-        sendBtn.disabled = true;
+        btn.disabled = true;
 
-        // Display user message
         addMessage("user", message);
         input.value = "";
-
-        // Show typing indicator
-        showTypingIndicator();
+        showTyping();
 
         try {
-          console.log(`🔄 Sending request to: ${API_BASE_URL}/chat`);
-          console.log(`📤 Data:`, { message, conversation_id: conversationId });
-
-          const response = await fetch(`${API_BASE_URL}/chat`, {
+          var res = await fetch(API_BASE_URL + "/chat", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               message: message,
               conversation_id: conversationId,
             }),
           });
 
-          console.log(`📥 Response status: ${response.status}`);
+          if (!res.ok) throw new Error("HTTP " + res.status);
 
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          const data = await response.json();
-          console.log(`✅ Response data:`, data);
-
-          // Update connection status
+          var data = await res.json();
           updateConnectionStatus(true);
 
-          // Store conversation ID from response
           if (data.conversation_id) {
             conversationId = data.conversation_id;
             localStorage.setItem("idec_conversation_id", conversationId);
-            console.log(`💾 Stored conversation ID: ${conversationId}`);
           }
 
-          // Update user name if captured
-          if (data.user_name) {
-            currentUserName = data.user_name;
-            console.log(`👤 User name: ${data.user_name}`);
-          }
+          if (data.user_name) currentUserName = data.user_name;
 
-          // Remove typing indicator
-          removeTypingIndicator();
-
-          // Display bot response
+          hideTyping();
           addMessage("bot", data.reply || data.raw_reply);
-        } catch (error) {
-          console.error("❌ Error details:", error);
+        } catch (err) {
+          console.error("Send error:", err);
           updateConnectionStatus(false);
-          removeTypingIndicator();
+          hideTyping();
 
-          // More specific error messages
           if (
-            error.message.includes("Failed to fetch") ||
-            error.message.includes("NetworkError")
+            err.message.includes("Failed to fetch") ||
+            err.message.includes("NetworkError")
           ) {
             addMessage(
               "bot",
-              `❌ Cannot connect to server. Please check your internet connection.`
-            );
-          } else if (error.message.includes("HTTP error")) {
-            addMessage(
-              "bot",
-              `❌ Server error: ${error.message}. Please try again later.`
+              "Can't reach the server right now. Please check your connection and try again."
             );
           } else {
-            addMessage("bot", `❌ Error: ${error.message}`);
+            addMessage(
+              "bot",
+              "Something went wrong. Please try again."
+            );
           }
         } finally {
-          // Re-enable input
           input.disabled = false;
-          sendBtn.disabled = false;
+          btn.disabled = false;
           input.focus();
         }
       }
 
-      // Reset chat
+      /* ── Reset chat (no native confirm!) ─────────── */
       async function resetChat() {
-        if (
-          !confirm(
-            "Are you sure you want to reset the chat? This will clear your conversation history."
-          )
-        ) {
-          return;
-        }
-
         try {
           if (conversationId) {
-            console.log(`🔄 Resetting conversation: ${conversationId}`);
-            await fetch(`${API_BASE_URL}/reset-session`, {
+            await fetch(API_BASE_URL + "/reset-session", {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                conversation_id: conversationId,
-              }),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ conversation_id: conversationId }),
             });
           }
 
-          // Clear local storage and state
           localStorage.removeItem("idec_conversation_id");
           conversationId = null;
           currentUserName = null;
-
-          // Clear UI
           document.getElementById("messages-container").innerHTML = "";
-
-          // Add welcome message with Tosan's introduction
           addMessage(
             "bot",
-            "Hello! My name is Tosan. I'm your IDEC support assistant."
+            "Hello! I'm Tosan, your IDEC support assistant. What's your name?"
           );
-          console.log("✅ Chat reset successfully");
-        } catch (error) {
-          console.error("❌ Error resetting chat:", error);
-          addSystemMessage(
-            "Failed to reset chat. You can refresh the page to start fresh."
-          );
+        } catch (e) {
+          console.error("Reset error:", e);
+          addSystemMessage("Reset failed. Refresh the page to start fresh.");
         }
       }
 
-      // Test connection on load
+      /* ── Health check ───────────────────────────── */
       async function testConnection() {
         try {
-          console.log(`🔍 Testing connection to ${API_BASE_URL}/health`);
-          const response = await fetch(`${API_BASE_URL}/health`);
-          const data = await response.json();
-          console.log("✅ Server is reachable:", data);
+          var res = await fetch(API_BASE_URL + "/health");
+          await res.json();
           updateConnectionStatus(true);
           return true;
-        } catch (error) {
-          console.error("❌ Cannot reach server:", error);
+        } catch (e) {
+          console.error("Health check failed:", e);
           updateConnectionStatus(false);
           return false;
         }
       }
 
-      // Handle Enter key
+      /* ── Enter key ──────────────────────────────── */
       document
         .getElementById("user-input")
         .addEventListener("keypress", function (e) {
@@ -742,33 +774,28 @@
           }
         });
 
-      // Initial greeting and connection test with conversation restore
+      /* ── Close modal on overlay click ───────────── */
+      document
+        .getElementById("modal-overlay")
+        .addEventListener("click", function (e) {
+          if (e.target === this) hideResetConfirm();
+        });
+
+      /* ── Init ───────────────────────────────────── */
       window.addEventListener("load", async function () {
-        // Test connection first
-        const connected = await testConnection();
-
-        if (connected) {
-          // Try to restore previous conversation
-          const restored = await restoreConversation();
-
+        var ok = await testConnection();
+        if (ok) {
+          var restored = await restoreConversation();
           if (!restored) {
-            // No previous conversation, show welcome message
-            setTimeout(() => {
+            setTimeout(function () {
               addMessage(
                 "bot",
-                "Hello! My name is Tosan. I'm your IDEC support assistant."
+                "Hello! I'm Tosan, your IDEC support assistant. What's your name?"
               );
-            }, 500);
+            }, 400);
           }
         }
       });
-
-      // Log conversation ID for debugging
-      console.log(
-        "🔑 Initial Conversation ID:",
-        conversationId || "Will be generated on first message"
-      );
-      console.log("🌐 API Base URL:", API_BASE_URL);
     </script>
   </body>
 </html>
